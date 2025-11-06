@@ -18,7 +18,7 @@
 
 1. [Overview – The Fine-Tuning Accessibility Crisis](#overview--the-fine-tuning-accessibility-crisis)
 2. [Problem Statement](#problem-statement)
-3. [Approach Summary](#approach-summary)
+3. [Approach: The Three-Innovation Solution](#approach-the-three-innovation-solution)
 4. [Connection to Foundational Course Material](#connection-to-foundational-course-material)
 5. [Architecture Overview – Formal Pseudocode Description](#architecture-overview--formal-pseudocode-description)
 6. [Results and Findings](#results-and-findings)
@@ -72,7 +72,7 @@ Just as JPEG achieves 10× compression while preserving visual fidelity, **QLoRA
 
 <br>
 
-### The Three-Innovation Solution
+## Approach: The Three-Innovation Solution
 
 QLoRA enables 65B model fine-tuning on a single 48GB GPU through three breakthroughs:
 
@@ -83,7 +83,19 @@ QLoRA enables 65B model fine-tuning on a single 48GB GPU through three breakthro
 | **Paged Optimizers** | Uses NVIDIA Unified Memory to offload optimizer states during memory spikes | Prevents Out-Of-Memory crashes during gradient checkpointing |
 
 ![QLoRA Architecture Diagram](<images/qlora figure 1.png>)  
-**Figure 1**: Comparison of memory architectures across full fine-tuning (16-bit), LoRA (16-bit), and QLoRA (4-bit + paging).
+**Figure 1**: Comparison of memory architectures across full fine-tuning (16-bit), LoRA (16-bit), and QLoRA (4-bit + paging).  
+
+### Operational Flow
+
+1. **Storage:** Base model weights stored as 4-bit NormalFloat \( W^{NF4} \)
+2. **Forward Pass:** Dequantize \( W^{NF4} \rightarrow W^{BF16} \) on-the-fly; compute \( Y = XW^{BF16} + X(AB) \)
+3. **Backward Pass:** Gradients computed in BF16 but *only for LoRA parameters* (\( \partial L / \partial A, \partial L / \partial B \)) — base weights remain frozen
+4. **Memory Management:** Paged optimizers automatically transfer Adam states (m, v) between GPU and CPU RAM when needed
+
+Together, these three innovations define QLoRA’s training pipeline—compressing storage, optimizing computation, and managing memory seamlessly across GPU and CPU.
+
+**Memory Reduction:**  
+QLoRA achieves **~16× memory savings** vs. full fine-tuning, **~4× savings** vs. 16-bit LoRA.
 
 ### The Revolutionary Result
 
@@ -143,31 +155,6 @@ This brings total memory (base + adapters + optimizer + activations) **under 48 
 Forces clarification of the *actual* memory bottleneck—highlighting that parameter efficiency ≠ memory efficiency. Reveals QLoRA's core insight: **compress the storage, not the computation**.
 
 </details>
-
----
-
-## Approach Summary
-
-QLoRA extends LoRA by combining **4-bit quantized base models** with **16-bit LoRA adapters**, enabling gradient-based training through quantized weights without accuracy loss.
-
-### Component Breakdown
-
-| Component | Technical Description | QLoRA Role |
-|-----------|----------------------|------------|
-| **NF4 Quantization** | Information-theoretically optimal 4-bit data type for normally distributed weights; uses quantile quantization with bins containing equal expected values | Compresses frozen base model W<sup>NF4</sup> from 16-bit → 4-bit |
-| **Double Quantization** | Applies second-level quantization to the quantization constants (c<sub>2</sub>) using 8-bit Float | Reduces quantization overhead from 0.5 → 0.127 bits/parameter |
-| **Paged Optimizers** | Uses NVIDIA Unified Memory (GPU ↔ CPU paging) to dynamically offload 32-bit Adam states during OOM spikes | Prevents memory crashes with long sequences |
-| **LoRA Adapters** | Low-rank matrices (A ∈ ℝ<sup>h×r</sup>, B ∈ ℝ<sup>r×o</sup>) injected into *all* linear layers (not just attention) | Stores trainable parameters in full BF16 precision; gradients only flow through adapters |
-
-### Operational Flow
-
-1. **Storage:** Base model weights stored as 4-bit NormalFloat (W<sup>NF4</sup>)
-2. **Forward Pass:** Dequantize W<sup>NF4</sup> → W<sup>BF16</sup> on-the-fly; compute Y = XW<sup>BF16</sup> + X(AB)
-3. **Backward Pass:** Gradients computed in BF16 but *only for LoRA parameters* (∂L/∂A, ∂L/∂B)—base weights remain frozen
-4. **Memory Management:** Paged optimizers automatically transfer Adam states (m, v) between GPU/CPU RAM when needed
-
-**Memory Reduction:**  
-QLoRA achieves **~16× memory savings** vs. full fine-tuning, **~4× savings** vs. 16-bit LoRA.
 
 ---
 
